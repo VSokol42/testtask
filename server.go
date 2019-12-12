@@ -1,7 +1,7 @@
 package main
 
 import (
-	_ "encoding/json"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -21,7 +21,7 @@ type ReqAddUser struct {
 }
 
 type RespCommon struct {
-	Error string `json:"token"`
+	Error string `json:"error"`
 }
 
 type ReqGetUser struct {
@@ -39,6 +39,31 @@ type RespGetUser struct {
 	WinSum       int     `json:"winSum"`
 }
 
+type ReqAddDeposit struct {
+	UserId    int    `json:"userId"`
+	DepositId int    `json:"depositId"`
+	Amount    int    `json:"amount"`
+	Token     string `json:"token"`
+}
+
+type RespAddDeposit struct {
+	Error   string  `json:"error"`
+	Balance float32 `json:"balance"`
+}
+
+type ReqTxUser struct {
+	UserId        int     `json:"userId"`
+	TransactionId int     `json:"transactionId"`
+	Type          string  `json:"type"`
+	Amount        float32 `json:"amount"`
+	Token         string  `json:"token"`
+}
+
+type RespTxUser struct {
+	Error   string  `json:"error"`
+	Balance float32 `json:"balance"`
+}
+
 type CmdFunc func([]byte) string
 
 type CmdMap map[string]CmdFunc
@@ -50,27 +75,136 @@ func Println(v ...interface{}) {
 	fmt.Println((currentTime.Format("1999-01-02 03:04:05.000000  ")) + fmt.Sprintln(v...))
 }
 
-func addUser(req []byte) (resp string) {
-	resp = "addUser ok"
-	return
+func IsNewUser(id int) (r bool) {
+	return !r
 }
 
-func getUser(req []byte) (resp string) {
-	resp = "getUser ok"
-	return
+func addUser(body []byte) string {
+	var err error
+	var req ReqAddUser
+	var answer RespCommon
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		answer.Error = err.Error()
+	} else {
+		if req.Token != "testtask" {
+			answer.Error += "Wrong token value."
+		}
+		if !IsNewUser(req.Id) {
+			answer.Error += "This Id is already used."
+		}
+		if req.Balance != 0.0 {
+			answer.Error += "Wrong balance value."
+		}
+		if len(answer.Error) == 0 {
+			// Here add new user
+			Println("User added")
+		}
+	}
+	bytes, err := json.Marshal(answer)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(bytes)
 }
 
-func addDeposit(req []byte) (resp string) {
-	resp = "addDeposit ok "
-	return
+func getUser(body []byte) string {
+	var err error
+	var req ReqGetUser
+	var answerErr RespCommon
+	var answer RespGetUser
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		answerErr.Error = err.Error()
+	} else {
+		if req.Token != "testtask" {
+			answerErr.Error += "Wrong token value."
+		}
+		if !IsNewUser(req.Id) {
+			answerErr.Error += "User isn't exist."
+		}
+		if len(answerErr.Error) == 0 {
+			// Here get user
+			Println("User get")
+			bytes, err := json.Marshal(answer)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return string(bytes)
+		}
+	}
+	bytes, err := json.Marshal(answerErr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(bytes)
 }
 
-func tx(req []byte) (resp string) {
-	resp = "tx ok"
-	return
+func addDepositUser(body []byte) string {
+	var err error
+	var req ReqAddDeposit
+	var answerErr RespCommon
+	var answer RespAddDeposit
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		answerErr.Error = err.Error()
+	} else {
+		if req.Token != "testtask" {
+			answerErr.Error += "Wrong token value."
+		}
+		if !IsNewUser(req.UserId) {
+			answerErr.Error += "User isn't exist."
+		}
+		if len(answerErr.Error) == 0 {
+			// Here add user deposit
+			Println("Add deposit")
+			bytes, err := json.Marshal(answer)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return string(bytes)
+		}
+	}
+	bytes, err := json.Marshal(answerErr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(bytes)
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
+func txUser(body []byte) string {
+	var err error
+	var req ReqTxUser
+	var answerErr RespCommon
+	var answer RespTxUser
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		answerErr.Error = err.Error()
+	} else {
+		if req.Token != "testtask" {
+			answerErr.Error += "Wrong token value."
+		}
+		if !IsNewUser(req.UserId) {
+			answerErr.Error += "User isn't exist."
+		}
+		if len(answerErr.Error) == 0 {
+			// Here
+			Println("Transaction")
+			bytes, err := json.Marshal(answer)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return string(bytes)
+		}
+	}
+	bytes, err := json.Marshal(answerErr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(bytes)
+}
+
+func worker(w http.ResponseWriter, r *http.Request) {
 	Println("url: ", r.URL.Path)
 
 	if r.Method != http.MethodPost {
@@ -102,9 +236,9 @@ func main() {
 	Cmd = map[string]CmdFunc{
 		"/user/create":  addUser,
 		"/user/get":     getUser,
-		"/user/deposit": addDeposit,
-		"/transaction":  tx,
+		"/user/deposit": addDepositUser,
+		"/transaction":  txUser,
 	}
-	http.HandleFunc("/", handler)
+	http.HandleFunc("/", worker)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
