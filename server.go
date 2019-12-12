@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-type Server struct {
-	DB     interface{}
-	Router interface{}
-}
-
 type ReqAddUser struct {
 	Id      int     `json:"id"`
 	Balance float32 `json:"balance"`
@@ -72,11 +67,7 @@ var Cmd = CmdMap{}
 
 func Println(v ...interface{}) {
 	currentTime := time.Now()
-	fmt.Println((currentTime.Format("1999-01-02 03:04:05.000000  ")) + fmt.Sprintln(v...))
-}
-
-func IsNewUser(id int) (r bool) {
-	return !r
+	fmt.Println((currentTime.Format("1999-01-02 03:04:05.000000  ")) + fmt.Sprint(v...))
 }
 
 func addUser(body []byte) string {
