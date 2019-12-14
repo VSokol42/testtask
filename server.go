@@ -68,7 +68,7 @@ var endpoints = EndpointMap{}
 
 func Println(v ...interface{}) {
 	currentTime := time.Now()
-	fmt.Println((currentTime.Format("1999-01-02 03:04:05.000000  ")) + fmt.Sprint(v...))
+	fmt.Println((currentTime.Format("2006-01-02 15:04:05.000000  ")) + fmt.Sprint(v...))
 }
 
 func addUser(body []byte) string {
