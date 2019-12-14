@@ -10,8 +10,8 @@ import (
 )
 
 type ReqAddUser struct {
-	Id      int     `json:"id"`
-	Balance float32 `json:"balance"`
+	Id      int64   `json:"id"`
+	Balance float64 `json:"balance"`
 	Token   string  `json:"token"`
 }
 
@@ -20,50 +20,51 @@ type RespCommon struct {
 }
 
 type ReqGetUser struct {
-	Id    int    `json:"id"`
+	Id    int64  `json:"id"`
 	Token string `json:"token"`
 }
 
 type RespGetUser struct {
-	Id           int     `json:"id"`
-	Balance      float32 `json:"balance"`
-	DepositCount int     `json:"depositCount"`
-	DepositSum   int     `json:"depositSum"`
-	BetSum       int     `json:"betSum"`
-	WinCount     int     `json:"winCount"`
-	WinSum       int     `json:"winSum"`
+	Id           int64   `json:"id"`
+	Balance      float64 `json:"balance"`
+	DepositCount int64   `json:"depositCount"`
+	DepositSum   float64 `json:"depositSum"`
+	BetCount     int64
+	BetSum       float64 `json:"betSum"`
+	WinCount     int64   `json:"winCount"`
+	WinSum       float64 `json:"winSum"`
 }
 
 type ReqAddDeposit struct {
-	UserId    int    `json:"userId"`
-	DepositId int    `json:"depositId"`
-	Amount    int    `json:"amount"`
-	Token     string `json:"token"`
+	UserId    int64   `json:"userId"`
+	DepositId int64   `json:"depositId"`
+	Amount    float64 `json:"amount"`
+	Token     string  `json:"token"`
 }
 
 type RespAddDeposit struct {
 	Error   string  `json:"error"`
-	Balance float32 `json:"balance"`
+	Balance float64 `json:"balance"`
 }
 
 type ReqTxUser struct {
-	UserId        int     `json:"userId"`
-	TransactionId int     `json:"transactionId"`
+	UserId        int64   `json:"userId"`
+	TransactionId int64   `json:"transactionId"`
 	Type          string  `json:"type"`
-	Amount        float32 `json:"amount"`
+	Amount        float64 `json:"amount"`
 	Token         string  `json:"token"`
 }
 
 type RespTxUser struct {
 	Error   string  `json:"error"`
-	Balance float32 `json:"balance"`
+	Balance float64 `json:"balance"`
 }
 
-type CmdFunc func([]byte) string
+type EndpointFunc func([]byte) string
 
-type CmdMap map[string]CmdFunc
+type EndpointMap map[string]EndpointFunc
 
-var Cmd = CmdMap{}
+var endpoints = EndpointMap{}
 
 func Println(v ...interface{}) {
 	currentTime := time.Now()
@@ -89,7 +90,15 @@ func addUser(body []byte) string {
 		}
 		if len(answer.Error) == 0 {
 			// Here add new user
-			Println("User added")
+			err = AddUserToStorage(req.Id, req.Balance)
+			if err != nil {
+				answer.Error = err.Error()
+			}
+			bytes, err := json.Marshal(answer)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return string(bytes)
 		}
 	}
 	bytes, err := json.Marshal(answer)
@@ -111,12 +120,20 @@ func getUser(body []byte) string {
 		if req.Token != "testtask" {
 			answerErr.Error += "Wrong token value."
 		}
-		if !IsNewUser(req.Id) {
+		if IsNewUser(req.Id) {
 			answerErr.Error += "User isn't exist."
 		}
 		if len(answerErr.Error) == 0 {
 			// Here get user
-			Println("User get")
+			err = GetUserFromStorage(req.Id, &answer)
+			if err != nil {
+				answerErr.Error = err.Error()
+				bytes, err := json.Marshal(answerErr)
+				if err != nil {
+					log.Fatal(err)
+				}
+				return string(bytes)
+			}
 			bytes, err := json.Marshal(answer)
 			if err != nil {
 				log.Fatal(err)
@@ -143,12 +160,13 @@ func addDepositUser(body []byte) string {
 		if req.Token != "testtask" {
 			answerErr.Error += "Wrong token value."
 		}
-		if !IsNewUser(req.UserId) {
+		if IsNewUser(req.UserId) {
 			answerErr.Error += "User isn't exist."
 		}
 		if len(answerErr.Error) == 0 {
 			// Here add user deposit
-			Println("Add deposit")
+			err = AddDepositToUser(req.UserId, req.DepositId, req.Amount, &answer)
+
 			bytes, err := json.Marshal(answer)
 			if err != nil {
 				log.Fatal(err)
@@ -175,7 +193,7 @@ func txUser(body []byte) string {
 		if req.Token != "testtask" {
 			answerErr.Error += "Wrong token value."
 		}
-		if !IsNewUser(req.UserId) {
+		if IsNewUser(req.UserId) {
 			answerErr.Error += "User isn't exist."
 		}
 		if len(answerErr.Error) == 0 {
@@ -211,20 +229,28 @@ func worker(w http.ResponseWriter, r *http.Request) {
 
 	Println("request: ", string(request))
 
-	if _, ok := Cmd[r.URL.Path]; !ok {
+	if _, ok := endpoints[r.URL.Path]; !ok {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "wrong endpoint name")
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, Cmd[r.URL.Path](request))
+	fmt.Fprintf(w, endpoints[r.URL.Path](request))
 	return
 }
 
 func main() {
 	Println("Service started...")
-	Cmd = map[string]CmdFunc{
+	err := StorageInit()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	defer db.Close()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	endpoints = map[string]EndpointFunc{
 		"/user/create":  addUser,
 		"/user/get":     getUser,
 		"/user/deposit": addDepositUser,
