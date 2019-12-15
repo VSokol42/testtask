@@ -19,8 +19,8 @@ import (
 
 const (
 	BU = "Users"    // collection of users, root for next buckets
-	BD = "Deposits" // prefix for collection of deposits for each user
-	BT = "Txs"      // prefix for collection of trasnsactions for each user
+	BD = "Deposit_" // prefix for collection of deposits for each user
+	BT = "Tx_"      // prefix for collection of trasnsactions for each user
 )
 
 type User struct {
@@ -54,6 +54,16 @@ type Deposit struct {
 	Time          string  `json:"time"`
 }
 
+type TxToDb struct {
+	txId  uint64 // id of transaction
+	bytes []byte // data of transaction
+}
+
+type TxsToDb struct {
+	userId uint64   // user id
+	txs    []TxToDb // array of transactions of user
+}
+
 type Transaction struct {
 	TypeTx        string  `json:"typeTx"`
 	Diff          float64 `json:"diff"`
@@ -63,21 +73,27 @@ type Transaction struct {
 }
 
 type UserTotal struct {
-	m       sync.RWMutex
-	changed bool
-	u       User
-	d       map[uint64]*Deposit
-	t       map[uint64]*Transaction
+	m       sync.RWMutex // mutex ..
+	changed bool         // true if user data changed
+
+	u User // user data
+
+	lastDeposit uint64              // id of last deposit
+	d           map[uint64]*Deposit // deposits
+
+	lastTx uint64                  // id of last transaction
+	t      map[uint64]*Transaction // transactions
 }
 
 type UsersCache struct {
-	users   map[uint64]*UserTotal
-	refresh bool
+	refresh bool                  // something changed in cache
+	users   map[uint64]*UserTotal // users data, deposits, transactions
 }
 
-//var memCache = UsersCache{}
+// memory cache of users data, deposits and transactions
 var memCache *UsersCache
 
+// datanase
 var db *bolt.DB
 
 func IsNewUser(id uint64) (r bool) {
@@ -103,13 +119,27 @@ func IsNewTransaction(id uint64, txId uint64) (r bool) {
 	return !r
 }
 
+func IsValidTxType(txType string) (r bool) {
+	return txType == "Win" || txType == "Bet"
+}
+
+func IsValidTxBet(id uint64, txType string, Amount float64) (r bool) {
+	if txType != "Bet" || IsNewUser(id) {
+		return
+	}
+	return memCache.users[id].u.Balance-Amount > 0
+}
+
 func AddUserToStorage(id uint64, bal float64) error {
 	if !IsNewUser(id) {
 		return errors.New("Storage: User already exist")
 	}
+	memCache.users[id].m.Lock()
 	memCache.users[id] = new(UserTotal)
 	memCache.users[id].d = make(map[uint64]*Deposit)
-	memCache.users[id].m.Lock()
+	memCache.users[id].t = make(map[uint64]*Transaction)
+	memCache.users[id].lastDeposit = 0
+	memCache.users[id].lastTx = 0
 	memCache.users[id].u = User{
 		Balance: bal,
 	}
@@ -166,7 +196,49 @@ func AddDepositToUser(id uint64, depositId uint64, add float64, resp *RespAddDep
 	memCache.users[id].changed = true
 	memCache.refresh = true
 	memCache.users[id].m.Unlock()
-	Println("Add deposit successful ", memCache.users[id])
+	Println("Add deposit successful ", memCache.users[id].d[depositId])
+	return nil
+}
+
+func TransactionOfUser(id uint64, txId uint64, txType string, txAmount float64, resp *RespTxUser) error {
+	// additional tests of existances
+	if IsNewUser(id) {
+		return errors.New("Storage: User isn't exist")
+	}
+	if !IsNewTransaction(id, txId) {
+		return errors.New("Storage: This transaction is already exist")
+	}
+	// get timestamp and lock memCache
+	currentTime := time.Now()
+	memCache.users[id].m.Lock()
+	// add or substruct amount to balance of user
+	u := memCache.users[id].u
+	prevBal := u.Balance
+	if txType == "Win" {
+		u.Balance += txAmount
+		u.WinCount++
+		u.WinSum += txAmount
+	} else if txType == "Bet" {
+		u.Balance -= txAmount
+		u.BetCount++
+		u.BetSum += txAmount
+	}
+	memCache.users[id].u = u
+	// add transaction to collection
+	memCache.users[id].t[txId] = new(Transaction)
+	t := memCache.users[id].t[txId]
+	t.TypeTx = txType
+	t.Diff = prevBal - u.Balance
+	t.BalanceBefore = prevBal
+	t.BalanceAfter = u.Balance
+	t.Time = currentTime.Format("2006-01-02 15:04:05.000000")
+	memCache.users[id].t[txId] = t
+	// make response and unlock memCache
+	resp.Balance = memCache.users[id].u.Balance
+	memCache.users[id].changed = true
+	memCache.refresh = true
+	memCache.users[id].m.Unlock()
+	Println("Add transaction successful ", memCache.users[id].t[txId])
 	return nil
 }
 
@@ -195,14 +267,6 @@ func setupDB() (db *bolt.DB, err error) {
 		if err != nil {
 			return fmt.Errorf("could not create bucket: %v", err)
 		}
-		// _, err = bkt.CreateBucketIfNotExists([]byte(BD))
-		// if err != nil {
-		// 	return fmt.Errorf("could not create bucket: %v", err)
-		// }
-		// _, err = bkt.CreateBucketIfNotExists([]byte(BT))
-		// if err != nil {
-		// 	return fmt.Errorf("could not create bucket: %v", err)
-		// }
 
 		return nil
 	})
@@ -213,7 +277,8 @@ func RefreshDB() (err error) {
 	var userData = UserToDb{}
 	var depositsList = []DepositsToDb{}
 	var depositsOfUser = DepositsToDb{}
-
+	var txsList = []TxsToDb{}
+	var txsOfUser = TxsToDb{}
 	for i, user := range memCache.users {
 		if user.changed {
 			// add data of user to list for update to db
@@ -239,6 +304,22 @@ func RefreshDB() (err error) {
 			depositsOfUser.userId = userData.id
 			depositsOfUser.deposits = depositList
 			depositsList = append(depositsList, depositsOfUser)
+			// transations of user to list for update to db
+			var txList = []TxToDb{}
+			userTx := TxToDb{}
+			for j, tx := range memCache.users[userData.id].t {
+				Println(j, tx)
+				userTx.txId = uint64(j)
+				userTx.bytes, err = json.Marshal(tx)
+				if err != nil {
+					return
+				}
+				Println(userTx)
+				txList = append(txList, userTx)
+			}
+			txsOfUser.userId = userTx.txId
+			txsOfUser.txs = txList
+			txsList = append(txsList, txsOfUser)
 
 		}
 	}

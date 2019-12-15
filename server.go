@@ -199,9 +199,26 @@ func txUser(body []byte) string {
 		if IsNewUser(req.UserId) {
 			answerErr.Error += "User isn't exist."
 		}
+		if !IsValidTxType(req.Type) {
+			answerErr.Error += "Invalid transaction type."
+		}
+		if !IsValidTxBet(req.UserId, req.Type, req.Amount) {
+			answerErr.Error += "Invalid bet, insufficient of amount."
+		}
+		if req.Amount <= 0.0 {
+			answerErr.Error += "Invalid amount."
+		}
+
 		if len(answerErr.Error) == 0 {
-			// Here
-			Println("Transaction")
+			// Here perform transaction
+			err = TransactionOfUser(req.UserId, req.TransactionId, req.Type, req.Amount, &answer)
+			if err != nil {
+				bytes, err := json.Marshal(answerErr)
+				if err != nil {
+					log.Fatal(err)
+				}
+				return string(bytes)
+			}
 			bytes, err := json.Marshal(answer)
 			if err != nil {
 				log.Fatal(err)
