@@ -25,11 +25,11 @@ const (
 
 type User struct {
 	Balance      float64 `json:"balance"`
-	DepositCount int64   `json:"depositCount"`
+	DepositCount uint64  `json:"depositCount"`
 	DepositSum   float64 `json:"depositSum"`
-	WinCount     int64   `json:"winCount"`
+	WinCount     uint64  `json:"winCount"`
 	WinSum       float64 `json:"winSum"`
-	BetCount     int64   `json:"betCount"`
+	BetCount     uint64  `json:"betCount"`
 	BetSum       float64 `json:"betSum"`
 }
 
@@ -130,12 +130,20 @@ func IsValidTxBet(id uint64, txType string, Amount float64) (r bool) {
 	return memCache.users[id].u.Balance-Amount > 0
 }
 
+func IsLinkedDeposit(id uint64, depositId uint64) (r bool) {
+	return depositId == memCache.users[id].lastDeposit+1
+}
+
+func IsLinkedTx(id uint64, txId uint64) (r bool) {
+	return txId == memCache.users[id].lastTx+1
+}
+
 func AddUserToStorage(id uint64, bal float64) error {
 	if !IsNewUser(id) {
 		return errors.New("Storage: User already exist")
 	}
-	memCache.users[id].m.Lock()
 	memCache.users[id] = new(UserTotal)
+	memCache.users[id].m.Lock()
 	memCache.users[id].d = make(map[uint64]*Deposit)
 	memCache.users[id].t = make(map[uint64]*Transaction)
 	memCache.users[id].lastDeposit = 0
@@ -195,6 +203,7 @@ func AddDepositToUser(id uint64, depositId uint64, add float64, resp *RespAddDep
 	resp.Balance = memCache.users[id].u.Balance
 	memCache.users[id].changed = true
 	memCache.refresh = true
+	memCache.users[id].lastDeposit = depositId
 	memCache.users[id].m.Unlock()
 	Println("Add deposit successful ", memCache.users[id].d[depositId])
 	return nil
@@ -237,6 +246,7 @@ func TransactionOfUser(id uint64, txId uint64, txType string, txAmount float64, 
 	resp.Balance = memCache.users[id].u.Balance
 	memCache.users[id].changed = true
 	memCache.refresh = true
+	memCache.users[id].lastTx = txId
 	memCache.users[id].m.Unlock()
 	Println("Add transaction successful ", memCache.users[id].t[txId])
 	return nil
@@ -347,10 +357,38 @@ func RefreshDB() (err error) {
 				}
 			}
 		}
+		for _, t := range txsList {
+			bt, err := b.CreateBucketIfNotExists([]byte(BT + strconv.FormatUint(t.userId, 10)))
+			if err != nil {
+				return err
+			}
+			for _, t0 := range t.txs {
+				err = bt.Put([]byte(strconv.FormatUint(t0.txId, 10)), t0.bytes)
+				if err != nil {
+					return err
+				}
+			}
+		}
 
 		return nil
 
 	})
+
+	for _, user := range memCache.users {
+		if user.changed {
+			user.m.Lock()
+			// deleye all deposits
+			for key := range memCache.users[userData.id].d {
+				delete(memCache.users[userData.id].d, key)
+			}
+			// delete all transactions
+			for key := range memCache.users[userData.id].t {
+				delete(memCache.users[userData.id].t, key)
+			}
+			user.changed = false
+			user.m.Unlock()
+		}
+	}
 	if err != nil {
 		Println(err.Error())
 	}
@@ -363,41 +401,26 @@ func LoadDB() (err error) {
 		b := tx.Bucket([]byte(BU))
 		key := 0
 		if err = b.ForEach(func(k, v []byte) error {
+			Println(string(k), string(v))
 			key, err = strconv.Atoi(string(k))
-			if err != nil {
-				return err
+			if err == nil {
+
+				err = json.Unmarshal(v, &u)
+				if err != nil {
+					return err
+				}
+				memCache.users[uint64(key)] = new(UserTotal)
+				memCache.users[uint64(key)].u = u
+				memCache.users[uint64(key)].lastDeposit = u.DepositCount
+				memCache.users[uint64(key)].lastTx = u.BetCount + u.WinCount
+				Println(key, u)
 			}
-			err = json.Unmarshal(v, &u)
-			if err != nil {
-				return err
-			}
-			memCache.users[uint64(key)] = new(UserTotal)
-			memCache.users[uint64(key)].u = u
-			Println(key, u)
 			return nil
 		}); err != nil {
 			return err
 		}
 		return err
 	})
-}
-
-func PrintDB() {
-	err := db.View(func(tx *bolt.Tx) (err error) {
-		b := tx.Bucket([]byte(BU))
-
-		if err = b.ForEach(func(k, v []byte) error {
-			fmt.Printf("A %s is %s.\n", k, v)
-			return nil
-		}); err != nil {
-			return err
-		}
-		return err
-
-	})
-	if err != nil {
-		Println(err.Error())
-	}
 }
 
 func CtrlCHandler() {
@@ -418,7 +441,6 @@ func StorageInit() (err error) {
 	if err != nil {
 		return
 	}
-	PrintDB()
 	err = LoadDB()
 	if err != nil {
 		return

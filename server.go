@@ -27,11 +27,11 @@ type ReqGetUser struct {
 type RespGetUser struct {
 	Id           uint64  `json:"id"`
 	Balance      float64 `json:"balance"`
-	DepositCount int64   `json:"depositCount"`
+	DepositCount uint64  `json:"depositCount"`
 	DepositSum   float64 `json:"depositSum"`
-	BetCount     int64
+	BetCount     uint64
 	BetSum       float64 `json:"betSum"`
-	WinCount     int64   `json:"winCount"`
+	WinCount     uint64  `json:"winCount"`
 	WinSum       float64 `json:"winSum"`
 }
 
@@ -166,6 +166,9 @@ func addDepositUser(body []byte) string {
 		if !IsNewDeposit(req.UserId, req.DepositId) {
 			answerErr.Error += "This deposit is already exist."
 		}
+		if !IsLinkedDeposit(req.UserId, req.DepositId) {
+			answerErr.Error += "Deposit id is not linked to previous."
+		}
 		if len(answerErr.Error) == 0 {
 			// Here add user deposit
 			err = AddDepositToUser(req.UserId, req.DepositId, req.Amount, &answer)
@@ -204,6 +207,9 @@ func txUser(body []byte) string {
 		}
 		if !IsValidTxBet(req.UserId, req.Type, req.Amount) {
 			answerErr.Error += "Invalid bet, insufficient of amount."
+		}
+		if !IsLinkedTx(req.UserId, req.TransactionId) {
+			answerErr.Error += "Transaction id is not linked to previous."
 		}
 		if req.Amount <= 0.0 {
 			answerErr.Error += "Invalid amount."
