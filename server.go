@@ -10,7 +10,7 @@ import (
 )
 
 type ReqAddUser struct {
-	Id      int64   `json:"id"`
+	Id      uint64  `json:"id"`
 	Balance float64 `json:"balance"`
 	Token   string  `json:"token"`
 }
@@ -20,12 +20,12 @@ type RespCommon struct {
 }
 
 type ReqGetUser struct {
-	Id    int64  `json:"id"`
+	Id    uint64 `json:"id"`
 	Token string `json:"token"`
 }
 
 type RespGetUser struct {
-	Id           int64   `json:"id"`
+	Id           uint64  `json:"id"`
 	Balance      float64 `json:"balance"`
 	DepositCount int64   `json:"depositCount"`
 	DepositSum   float64 `json:"depositSum"`
@@ -36,8 +36,8 @@ type RespGetUser struct {
 }
 
 type ReqAddDeposit struct {
-	UserId    int64   `json:"userId"`
-	DepositId int64   `json:"depositId"`
+	UserId    uint64  `json:"userId"`
+	DepositId uint64  `json:"depositId"`
 	Amount    float64 `json:"amount"`
 	Token     string  `json:"token"`
 }
@@ -48,8 +48,8 @@ type RespAddDeposit struct {
 }
 
 type ReqTxUser struct {
-	UserId        int64   `json:"userId"`
-	TransactionId int64   `json:"transactionId"`
+	UserId        uint64  `json:"userId"`
+	TransactionId uint64  `json:"transactionId"`
 	Type          string  `json:"type"`
 	Amount        float64 `json:"amount"`
 	Token         string  `json:"token"`
@@ -162,6 +162,9 @@ func addDepositUser(body []byte) string {
 		}
 		if IsNewUser(req.UserId) {
 			answerErr.Error += "User isn't exist."
+		}
+		if !IsNewDeposit(req.UserId, req.DepositId) {
+			answerErr.Error += "This deposit is already exist."
 		}
 		if len(answerErr.Error) == 0 {
 			// Here add user deposit

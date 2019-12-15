@@ -1,5 +1,5 @@
 # testtask
-Test task for GuruTeam
+Test task from GuruTeam
 
 Написать бэкенд сервис, по обработке транзакций игрока. 
 Каждый запрос имеет token, без которого запрос не действительный.
