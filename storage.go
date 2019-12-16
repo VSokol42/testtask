@@ -76,13 +76,9 @@ type UserTotal struct {
 	m       sync.RWMutex // mutex ..
 	changed bool         // true if user data changed
 
-	u User // user data
-
-	lastDeposit uint64              // id of last deposit
-	d           map[uint64]*Deposit // deposits
-
-	lastTx uint64                  // id of last transaction
-	t      map[uint64]*Transaction // transactions
+	u User                    // user data
+	d map[uint64]*Deposit     // deposits
+	t map[uint64]*Transaction // transactions
 }
 
 type UsersCache struct {
@@ -125,17 +121,23 @@ func IsValidTxType(txType string) (r bool) {
 
 func IsValidTxBet(id uint64, txType string, Amount float64) (r bool) {
 	if txType != "Bet" || IsNewUser(id) {
-		return
+		return !r
 	}
 	return memCache.users[id].u.Balance-Amount > 0
 }
 
 func IsLinkedDeposit(id uint64, depositId uint64) (r bool) {
-	return depositId == memCache.users[id].lastDeposit+1
+	if IsNewUser(id) {
+		return
+	}
+	return depositId == memCache.users[id].u.DepositCount+1
 }
 
 func IsLinkedTx(id uint64, txId uint64) (r bool) {
-	return txId == memCache.users[id].lastTx+1
+	if IsNewUser(id) {
+		return
+	}
+	return txId == memCache.users[id].u.BetCount+memCache.users[id].u.WinCount+1
 }
 
 func AddUserToStorage(id uint64, bal float64) error {
@@ -146,8 +148,6 @@ func AddUserToStorage(id uint64, bal float64) error {
 	memCache.users[id].m.Lock()
 	memCache.users[id].d = make(map[uint64]*Deposit)
 	memCache.users[id].t = make(map[uint64]*Transaction)
-	memCache.users[id].lastDeposit = 0
-	memCache.users[id].lastTx = 0
 	memCache.users[id].u = User{
 		Balance: bal,
 	}
@@ -203,7 +203,6 @@ func AddDepositToUser(id uint64, depositId uint64, add float64, resp *RespAddDep
 	resp.Balance = memCache.users[id].u.Balance
 	memCache.users[id].changed = true
 	memCache.refresh = true
-	memCache.users[id].lastDeposit = depositId
 	memCache.users[id].m.Unlock()
 	Println("Add deposit successful ", memCache.users[id].d[depositId])
 	return nil
@@ -237,7 +236,7 @@ func TransactionOfUser(id uint64, txId uint64, txType string, txAmount float64, 
 	memCache.users[id].t[txId] = new(Transaction)
 	t := memCache.users[id].t[txId]
 	t.TypeTx = txType
-	t.Diff = prevBal - u.Balance
+	t.Diff = u.Balance - prevBal
 	t.BalanceBefore = prevBal
 	t.BalanceAfter = u.Balance
 	t.Time = currentTime.Format("2006-01-02 15:04:05.000000")
@@ -246,7 +245,6 @@ func TransactionOfUser(id uint64, txId uint64, txType string, txAmount float64, 
 	resp.Balance = memCache.users[id].u.Balance
 	memCache.users[id].changed = true
 	memCache.refresh = true
-	memCache.users[id].lastTx = txId
 	memCache.users[id].m.Unlock()
 	Println("Add transaction successful ", memCache.users[id].t[txId])
 	return nil
@@ -327,7 +325,7 @@ func RefreshDB() (err error) {
 				Println(userTx)
 				txList = append(txList, userTx)
 			}
-			txsOfUser.userId = userTx.txId
+			txsOfUser.userId = userData.id
 			txsOfUser.txs = txList
 			txsList = append(txsList, txsOfUser)
 
@@ -411,8 +409,9 @@ func LoadDB() (err error) {
 				}
 				memCache.users[uint64(key)] = new(UserTotal)
 				memCache.users[uint64(key)].u = u
-				memCache.users[uint64(key)].lastDeposit = u.DepositCount
-				memCache.users[uint64(key)].lastTx = u.BetCount + u.WinCount
+				memCache.users[uint64(key)].d = make(map[uint64]*Deposit)
+				memCache.users[uint64(key)].t = make(map[uint64]*Transaction)
+
 				Println(key, u)
 			}
 			return nil

@@ -1,0 +1,7 @@
+{
+    "userId":1,
+    "transactionId":1,
+    "type":"Bet",
+    "amount":1.5,
+    "token":"testtask"
+}
